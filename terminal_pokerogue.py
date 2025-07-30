@@ -111,7 +111,7 @@ def select_mode():
     print("""Select a game mode:
 1. Normal
 2. Hardcore (permadeath)
-3. Random Team Every Battle""")
+3. Random Team Genrator""")
     while True:
         m = input("Enter mode: ")
         if m in ["1", "2", "3"]:
