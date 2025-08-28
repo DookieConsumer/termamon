@@ -1,249 +1,368 @@
+import sys
 import random
-import time
-import os
+import os  # NEW
 
-# ========== CONFIG ==========
-MAX_TEAM_SIZE = 3
-STARTING_POKE_COUNT = 3
-STARTING_ITEMS = {"Potion": 2, "Pokeball": 3}
-ITEM_EFFECTS = {
-    "Potion": {"heal": 30, "desc": "Heals a Pokémon by 30 HP"},
-    "Pokeball": {"capture": True, "desc": "Try to catch a wild Pokémon"}
-}
-TRAINER_BUFFS = {
-    "Adrenaline": "10% bonus damage after using an item (resets each battle)",
-    "Loyalty": "One fainted Pokémon survives once per run",
-    "Sharpshooter": "+5% chance to critical hit"
+# NEW: safe Windows console setup (harmless on Linux)
+def _win_compat():
+    if os.name == "nt":
+        try:
+            import colorama
+            colorama.just_fix_windows_console()
+        except Exception:
+            pass
+        # ensure UTF-8 so “Pokéballs” prints correctly
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+            sys.stdin.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+
+
+# Move database
+MOVE_DB = {
+    "Ember": {"power": 35, "type": "Fire"},
+    "Scratch": {"power": 30, "type": "Normal"},
+    "Flamethrower": {"power": 90, "type": "Fire"},
+    "Water Gun": {"power": 40, "type": "Water"},
+    "Tackle": {"power": 30, "type": "Normal"},
+    "Bubble": {"power": 30, "type": "Water"},
+    "Vine Whip": {"power": 45, "type": "Grass"},
+    "Razor Leaf": {"power": 55, "type": "Grass"},
+    "Thunder Shock": {"power": 40, "type": "Electric"},
+    "Quick Attack": {"power": 40, "type": "Normal"},
+    "Thunderbolt": {"power": 90, "type": "Electric"},
+    "Rock Throw": {"power": 50, "type": "Rock"},
+    "Magnitude": {"power": 70, "type": "Ground"},
+    "Lick": {"power": 30, "type": "Ghost"},
+    "Night Shade": {"power": 50, "type": "Ghost"},
+    "Hypnosis": {"power": 0, "type": "Psychic"},
+    "Bite": {"power": 60, "type": "Dark"},
+    "Flame Wheel": {"power": 60, "type": "Fire"},
+    "Body Slam": {"power": 85, "type": "Normal"},
+    "Supersonic": {"power": 0, "type": "Normal"},
+    "Absorb": {"power": 20, "type": "Grass"},
+    "Acid": {"power": 40, "type": "Poison"},
+    "Stun Spore": {"power": 0, "type": "Grass"},
 }
 
-# ========== DATA ==========
-POKEMON_LIST = [
-    "Pikachu", "Charmander", "Squirtle", "Bulbasaur", "Eevee", "Gengar",
-    "Machop", "Psyduck", "Abra", "Snorlax", "Vulpix", "Lapras", "Growlithe"
+POKEMON_ROSTER = [
+    {"name": "Charmander", "type": "Fire", "moves": ["Ember", "Scratch", "Flamethrower"], "max_hp": 39},
+    {"name": "Squirtle", "type": "Water", "moves": ["Water Gun", "Tackle", "Bubble"], "max_hp": 44},
+    {"name": "Bulbasaur", "type": "Grass", "moves": ["Vine Whip", "Tackle", "Razor Leaf"], "max_hp": 45},
+    {"name": "Pikachu", "type": "Electric", "moves": ["Thunder Shock", "Quick Attack", "Thunderbolt"], "max_hp": 35},
+    {"name": "Geodude", "type": "Rock", "moves": ["Rock Throw", "Tackle", "Magnitude"], "max_hp": 40},
+    {"name": "Gastly", "type": "Ghost", "moves": ["Lick", "Night Shade", "Hypnosis"], "max_hp": 30},
+    {"name": "Growlithe", "type": "Fire", "moves": ["Ember", "Bite", "Flame Wheel"], "max_hp": 55},
+    {"name": "Poliwag", "type": "Water", "moves": ["Water Gun", "Bubble", "Body Slam"], "max_hp": 40},
+    {"name": "Magnemite", "type": "Electric", "moves": ["Thunder Shock", "Tackle", "Supersonic"], "max_hp": 25},
+    {"name": "Oddish", "type": "Grass", "moves": ["Absorb", "Acid", "Stun Spore"], "max_hp": 45},
 ]
 
-MOVES = {
-    "Tackle": (10, 15),
-    "Bite": (8, 18),
-    "Scratch": (10, 20),
-    "Thunder Shock": (12, 22),
-    "Ember": (10, 20),
-    "Water Gun": (10, 20),
-    "Vine Whip": (10, 20)
+TRAINERS = [
+    {"name": "Ash", "buff": "Pokéballs +2 in Speedrunner"},
+    {"name": "Misty", "buff": "Water Pokémon HP +10 in Survivor"},
+    {"name": "Brock", "buff": "Rock Pokémon Defense +5 in Survivor"},
+    {"name": "No Trainer", "buff": None}
+]
+
+TRAINER_BUFFS = {
+    "Speedrunner": [
+        {"trainer": "Ash", "buff": "Pokéballs +2"},
+    ],
+    "Survivor": [
+        {"trainer": "Misty", "buff": "Water Pokémon HP +10"},
+        {"trainer": "Brock", "buff": "Rock Pokémon Defense +5"},
+    ],
+    "Normal": []
 }
 
-# ========== CLASSES ==========
+GAMEMODES = ["Normal", "Speedrunner", "Survivor"]
+MAX_PARTY_SIZE = 6
 
-class Pokemon:
-    def __init__(self, name):
-        self.name = name
-        self.hp = random.randint(40, 70)
-        self.max_hp = self.hp
-        self.moves = random.sample(list(MOVES.items()), 2)
-        self.alive = True
-        self.used_loyalty = False
+class PokemonInstance:
+    def __init__(self, base):
+        self.name = base["name"]
+        self.type = base["type"]
+        self.moves = base["moves"]
+        self.max_hp = base["max_hp"]
+        self.hp = self.max_hp
 
-    def take_damage(self, dmg, trainer_buff, used_item_this_battle):
-        if trainer_buff == "Adrenaline" and used_item_this_battle:
-            dmg = int(dmg * 1.1)
-        if trainer_buff == "Sharpshooter" and random.random() < 0.05:
-            print("💥 Critical hit!")
-            dmg *= 2
-        self.hp -= dmg
-        if self.hp <= 0:
-            self.hp = 0
-            self.alive = False
+    def heal(self):
+        self.hp = self.max_hp
 
-    def heal(self, amount):
-        if self.alive:
-            self.hp = min(self.max_hp, self.hp + amount)
+    def __str__(self):
+        return f"{self.name} (Type: {self.type}, HP: {self.hp}/{self.max_hp})"
 
-    def revive_loyalty(self, trainer_buff):
-        if not self.alive and trainer_buff == "Loyalty" and not self.used_loyalty:
-            self.hp = self.max_hp // 2
-            self.alive = True
-            self.used_loyalty = True
-            print(f"❤️ {self.name}'s loyalty brought them back to life!")
-            return True
-        return False
+class GameState:
+    def __init__(self):
+        self.trainer = None
+        self.gamemode = None
+        self.party = []
+        self.pokeballs = 5
+        self.active_idx = 0
+        self.starter_chosen = False
 
-class Player:
-    def __init__(self, mode, trainer_buff):
-        self.team = []
-        self.box = []
-        self.items = dict(STARTING_ITEMS)
-        self.mode = mode
-        self.buff = trainer_buff
-        self.used_item_this_battle = False
+    def reset(self):
+        self.trainer = None
+               self.gamemode = None
+        self.party = []
+        self.pokeballs = 5
+        self.active_idx = 0
+        self.starter_chosen = False
 
-    def generate_team(self, count):
-        self.team = [Pokemon(random.choice(POKEMON_LIST)) for _ in range(count)]
-
-    def add_pokemon(self, pkmn):
-        if len(self.team) < MAX_TEAM_SIZE:
-            self.team.append(pkmn)
-            print(f"✅ {pkmn.name} added to your team!")
+    def add_to_party(self, poke):
+        if len(self.party) < MAX_PARTY_SIZE and not any(p.name == poke.name for p in self.party):
+            self.party.append(poke)
+        elif any(p.name == poke.name for p in self.party):
+            print(f"{poke.name} is already in your party!")
         else:
-            self.box.append(pkmn)
-            print(f"📦 {pkmn.name} sent to your PC (team full).")
+            print("Your party is full! (Max 6 Pokémon)")
 
-    def has_alive_pokemon(self):
-        return any(p.alive for p in self.team)
-
-    def get_alive_pokemon(self):
-        return [p for p in self.team if p.alive]
-
-# ========== HELPERS ==========
-
-def clear(): os.system("clear" if os.name == "posix" else "cls")
-def pause(): input("Press Enter to continue...")
-
-def choose_trainer_buff():
-    print("🎖️ Choose a Trainer Buff:")
-    for i, (buff, desc) in enumerate(TRAINER_BUFFS.items(), 1):
-        print(f"{i}. {buff} - {desc}")
-    while True:
-        c = input("Enter number: ")
-        if c in map(str, range(1, len(TRAINER_BUFFS)+1)):
-            return list(TRAINER_BUFFS.keys())[int(c)-1]
-
-def select_mode():
-    print("""Select a game mode:
-1. Normal
-2. Hardcore (permadeath)
-3. Random Team Genrator""")
-    while True:
-        m = input("Enter mode: ")
-        if m in ["1", "2", "3"]:
-            return ["normal", "hardcore", "random"][int(m)-1]
-
-def print_team(team):
-    for i, p in enumerate(team, 1):
-        status = "🟢" if p.alive else "🔴"
-        print(f"{i}. {p.name} - {p.hp}/{p.max_hp} HP {status}")
-def battle(player: Player, round_num: int):
-    clear()
-    print(f"⚔️ BATTLE {round_num}")
-    wild = Pokemon(random.choice(POKEMON_LIST))
-    print(f"A wild {wild.name} appeared! HP: {wild.hp}")
-    pause()
-
-    while wild.alive and player.has_alive_pokemon():
-        clear()
-        print(f"🌟 Your Team:")
-        print_team(player.team)
-        print(f"\n🎯 Wild {wild.name} - {wild.hp} HP")
-        print("\nOptions:\n1. Attack\n2. Use Item\n3. Throw Pokéball")
-        choice = input("Choose an action: ")
-        if choice == "1":
-            attacker = choose_own_pokemon(player)
-            move_name, move_dmg = choose_move(attacker)
-            print(f"Your {attacker.name} used {move_name}!")
-            wild.take_damage(random.randint(*move_dmg), player.buff, player.used_item_this_battle)
-        elif choice == "2":
-            use_item(player)
-            player.used_item_this_battle = True
-        elif choice == "3":
-            success = try_catch(wild, player)
-            if success:
-                return
+    def switch_active(self, idx):
+        if 0 <= idx < len(self.party):
+            self.active_idx = idx
         else:
-            print("Invalid input.")
-            continue
+            print("Invalid party slot.")
 
-        if wild.alive:
-            defender = random.choice(player.get_alive_pokemon())
-            move = random.choice(wild.moves)
-            print(f"{wild.name} used {move[0]} on your {defender.name}!")
-            defender.take_damage(random.randint(*move[1]), "", False)
-            if not defender.alive:
-                print(f"💀 {defender.name} fainted!")
-                revived = defender.revive_loyalty(player.buff)
-                if not revived and player.mode == "hardcore":
-                    player.team.remove(defender)
-        pause()
+    def get_active(self):
+        if self.party:
+            return self.party[self.active_idx]
+        return None
 
-def choose_own_pokemon(player):
+def print_menu(options, add_back=True, add_exit=True):
+    for i, option in enumerate(options):
+        print(f"{i+1}. {option}")
+    idx = len(options)
+    if add_back:
+        print(f"{idx+1}. Back")
+        idx += 1
+    if add_exit:
+        print(f"{idx+1}. Exit")
+
+def wait_input(options, add_back=True, add_exit=True):
+    print_menu(options, add_back, add_exit)
+    valid = list(range(1, len(options)+1))
+    back_idx = len(options)+1 if add_back else None
+    exit_idx = len(options)+2 if add_back and add_exit else len(options)+1 if add_exit else None
     while True:
-        print("\nChoose your Pokémon:")
-        for i, p in enumerate(player.team, 1):
-            if p.alive:
-                print(f"{i}. {p.name} ({p.hp}/{p.max_hp} HP)")
-        c = input("Pick #: ")
-        if c.isdigit() and int(c)-1 in range(len(player.team)):
-            chosen = player.team[int(c)-1]
-            if chosen.alive:
-                return chosen
+        choice = input("Choose an option: ")
+        if choice.isdigit():
+            idx = int(choice)
+            if idx in valid:
+                return idx - 1
+            elif add_back and idx == back_idx:
+                return "back"
+            elif add_exit and idx == exit_idx:
+                print("Goodbye!")
+                sys.exit()
+        print("Invalid choice.")
 
-def choose_move(pokemon):
-    print(f"\n{pokemon.name}'s Moves:")
-    for i, (name, dmg) in enumerate(pokemon.moves, 1):
-        print(f"{i}. {name} ({dmg[0]}-{dmg[1]} dmg)")
+def main_menu(game):
     while True:
-        c = input("Pick move #: ")
-        if c in ["1", "2"]:
-            return pokemon.moves[int(c)-1]
+        print("\nMain Menu:")
+        options = ["Start Game", "Options", "View Roster", "View Party", "Heal Party"]
+        sel = wait_input(options, add_back=False)
+        if sel == 0:
+            start_game(game)
+        elif sel == 1:
+            options_menu(game)
+        elif sel == 2:
+            show_roster()
+        elif sel == 3:
+            show_party(game)
+        elif sel == 4:
+            heal_party(game)
 
-def use_item(player):
-    if not player.items:
-        print("Your bag is empty.")
-        return
-    print("\n🎒 Bag:")
-    for i, (item, qty) in enumerate(player.items.items(), 1):
-        print(f"{i}. {item} x{qty} - {ITEM_EFFECTS[item]['desc']}")
-    c = input("Choose item #: ")
-    if not c.isdigit() or int(c)-1 not in range(len(player.items)):
-        print("Invalid.")
-        return
-    item = list(player.items.keys())[int(c)-1]
-    if item == "Potion":
-        poke = choose_own_pokemon(player)
-        poke.heal(ITEM_EFFECTS[item]["heal"])
-        print(f"{poke.name} healed!")
-    player.items[item] -= 1
-    if player.items[item] <= 0:
-        del player.items[item]
-
-def try_catch(wild, player):
-    if "Pokeball" not in player.items:
-        print("No Pokéballs left!")
-        return False
-    chance = wild.hp / wild.max_hp
-    print("🎯 You threw a Pokéball!")
-    time.sleep(1)
-    if random.random() > chance:
-        print(f"✅ You caught {wild.name}!")
-        player.add_pokemon(wild)
-        return True
-    else:
-        print("❌ The Pokémon broke free!")
-        player.items["Pokeball"] -= 1
-        if player.items["Pokeball"] <= 0:
-            del player.items["Pokeball"]
-        return False
-
-# ========== MAIN GAME LOOP ==========
-
-def main():
-    clear()
-    print("🧢 Welcome to Terminal PokéRogue!")
-    mode = select_mode()
-    buff = choose_trainer_buff()
-    player = Player(mode, buff)
-
-    round_num = 1
+def options_menu(game):
     while True:
-        player.used_item_this_battle = False
-        if mode == "random":
-            player.generate_team(STARTING_POKE_COUNT)
-        elif round_num == 1:
-            player.generate_team(STARTING_POKE_COUNT)
-
-        if not player.has_alive_pokemon():
-            print("All your Pokémon have fainted. Game over.")
+        print("\nOptions:")
+        options = ["Select Trainer", "Select Gamemode"]
+        sel = wait_input(options)
+        if sel == 0:
+            select_trainer(game)
+        elif sel == 1:
+            select_gamemode(game)
+        elif sel == "back":
             return
 
-        battle(player, round_num)
-        round_num += 1
+def select_trainer(game):
+    while True:
+        print("\nSelect Trainer:")
+        options = [t["name"] for t in TRAINERS]
+        sel = wait_input(options)
+        if sel == "back":
+            return
+        game.trainer = TRAINERS[sel]["name"]
+        print(f"Selected Trainer: {game.trainer}")
+        return
 
-main()
+def select_gamemode(game):
+    while True:
+        print("\nSelect Gamemode:")
+        options = GAMEMODES
+        sel = wait_input(options)
+        if sel == "back":
+            return
+        game.gamemode = GAMEMODES[sel]
+        print(f"Selected Gamemode: {game.gamemode}")
+        buffs = [b for b in TRAINER_BUFFS[game.gamemode] if b["trainer"] == game.trainer]
+        if buffs:
+            print(f"Trainer Buff: {buffs[0]['buff']}")
+        elif game.trainer == "No Trainer":
+            print("No trainer selected, no buffs.")
+        else:
+            print("No applicable trainer buffs in this mode.")
+        return
+
+def show_roster():
+    print("\nAvailable Pokémon:")
+    for i, poke in enumerate(POKEMON_ROSTER):
+        print(f"{i+1}. {poke['name']} (Type: {poke['type']}, HP: {poke['max_hp']}, Moves: {', '.join(poke['moves'])})")
+
+def show_party(game):
+    print("\nYour Pokémon Party:")
+    if not game.party:
+        print("You have no Pokémon. Catch some!")
+    else:
+        for i, poke in enumerate(game.party):
+            active_str = " (ACTIVE)" if i == game.active_idx else ""
+            print(f"{i+1}. {poke.name} (Type: {poke.type}, HP: {poke.hp}/{poke.max_hp}){active_str}")
+    print(f"Pokéballs: {game.pokeballs}")
+    options = []
+    _ = wait_input(options)  # Only "Back" and "Exit" will show up
+
+def heal_party(game):
+    for poke in game.party:
+        poke.heal()
+    print("All party Pokémon healed!")
+
+def pick_starters(game):
+    print("\nPick your 3 starter Pokémon from the roster:")
+    chosen = []
+    available_indices = list(range(len(POKEMON_ROSTER)))
+    while len(chosen) < 3:
+        print("\nAvailable Pokémon:")
+        for display_idx, poke_idx in enumerate(available_indices):
+            poke = POKEMON_ROSTER[poke_idx]
+            print(f"{display_idx+1}. {poke['name']} (Type: {poke['type']}, HP: {poke['max_hp']}, Moves: {', '.join(poke['moves'])})")
+        sel = input(f"Pick Pokémon #{len(chosen)+1} (enter number): ")
+        if sel.isdigit():
+            pick_display_idx = int(sel)-1
+            if 0 <= pick_display_idx < len(available_indices):
+                pick_idx = available_indices[pick_display_idx]
+                chosen.append(PokemonInstance(POKEMON_ROSTER[pick_idx]))
+                available_indices.remove(pick_idx)
+            else:
+                print("Invalid selection or already picked.")
+        else:
+            print("Enter a valid number.")
+    for poke in chosen:
+        game.add_to_party(poke)
+    print("Starter Pokémon chosen!")
+    game.starter_chosen = True
+    game.active_idx = 0
+
+def start_game(game):
+    if game.trainer is None:
+        print("Select a trainer first in Options!")
+        return
+    if game.gamemode is None:
+        print("Select a gamemode first in Options!")
+        return
+    if not game.starter_chosen:
+        pick_starters(game)
+    print("\nStarting your adventure!")
+    if game.trainer != "No Trainer" and game.gamemode in TRAINER_BUFFS:
+        for buff in TRAINER_BUFFS[game.gamemode]:
+            if buff["trainer"] == game.trainer:
+                if "Pokéballs +2" in buff["buff"]:
+                    game.pokeballs += 2
+    while True:
+        encounter_menu(game)
+        print("\nWhat do you want to do next?")
+        options = ["Continue Adventure"]
+        sel = wait_input(options)
+        if sel == "back":
+            break
+
+def encounter_menu(game):
+    wild_base = random.choice(POKEMON_ROSTER)
+    wild_pokemon = PokemonInstance(wild_base)
+    print(f"\nA wild {wild_pokemon.name} appeared!")
+    print(f"Type: {wild_pokemon.type}, HP: {wild_pokemon.hp}/{wild_pokemon.max_hp}")
+    print(f"Moves: {', '.join(wild_pokemon.moves)}")
+    while wild_pokemon.hp > 0:
+        options = ["Attack", "Throw Pokéball", "Run Away", "Switch Pokémon"]
+        sel = wait_input(options)
+        if sel == 0:  # Attack
+            player_attack(game, wild_pokemon)
+            if wild_pokemon.hp <= 0:
+                print(f"{wild_pokemon.name} fainted! You can't catch it now.")
+                return
+        elif sel == 1:  # Throw Pokéball
+            if game.pokeballs <= 0:
+                print("You are out of Pokéballs!")
+                continue
+            game.pokeballs -= 1
+            catch_rate = 0.7 * (wild_pokemon.hp / wild_pokemon.max_hp)
+            if game.trainer == "Misty" and game.gamemode == "Survivor" and wild_pokemon.type == "Water":
+                catch_rate += 0.15
+            if random.random() < catch_rate:
+                print(f"You caught {wild_pokemon.name}!")
+                game.add_to_party(PokemonInstance(wild_base))
+                return
+            else:
+                print("Oh no! The Pokémon escaped.")
+        elif sel == 2:  # Run Away
+            print("You ran away safely.")
+            return
+        elif sel == 3:  # Switch Pokémon
+            switch_pokemon(game)
+        elif sel == "back":
+            return
+
+def player_attack(game, wild_pokemon):
+    active_poke = game.get_active()
+    if not active_poke:
+        print("You have no Pokémon to attack with!")
+        return
+    print(f"\nChoose a move to attack with {active_poke.name}:")
+    move_specs = []
+    for move in active_poke.moves:
+        specs = MOVE_DB.get(move, {})
+        move_type = specs.get("type", "Unknown")
+        move_power = specs.get("power", "Unknown")
+        move_specs.append(f"{move} (Type: {move_type}, Power: {move_power})")
+    sel = wait_input(move_specs)
+    if sel == "back":
+        return
+    move_name = active_poke.moves[sel]
+    move_power = MOVE_DB[move_name]["power"]
+    dmg = random.randint(int(move_power*0.7), move_power)
+    wild_pokemon.hp = max(0, wild_pokemon.hp - dmg)
+    print(f"{active_poke.name} used {move_name}! It dealt {dmg} damage.")
+    print(f"{wild_pokemon.name}'s HP: {wild_pokemon.hp}/{wild_pokemon.max_hp}")
+
+def switch_pokemon(game):
+    if not game.party:
+        print("No Pokémon to switch!")
+        return
+    print("\nChoose Pokémon to make active:")
+    options = []
+    for i, poke in enumerate(game.party):
+        active_str = " (ACTIVE)" if i == game.active_idx else ""
+        options.append(f"{poke.name} (Type: {poke.type}, HP: {poke.hp}/{poke.max_hp}){active_str}")
+    sel = wait_input(options, add_back=True, add_exit=True)
+    if sel == "back":
+        return
+    if 0 <= sel < len(game.party):
+        game.switch_active(sel)
+        print(f"{game.party[game.active_idx].name} is now active!")
+    else:
+        print("Invalid selection.")
+
+
+if __name__ == "__main__":
+    _win_compat()  # NEW: enables Windows console niceties; no-op on Linux
+    game = GameState()
+    main_menu(game)
