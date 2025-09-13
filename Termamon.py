@@ -1,8 +1,7 @@
 import sys
 import random
-import os  # NEW
+import os
 
-# NEW: safe Windows console setup (harmless on Linux)
 def _win_compat():
     if os.name == "nt":
         try:
@@ -10,7 +9,6 @@ def _win_compat():
             colorama.just_fix_windows_console()
         except Exception:
             pass
-        # ensure UTF-8 so “Pokéballs” prints correctly
         try:
             sys.stdout.reconfigure(encoding="utf-8")
             sys.stdin.reconfigure(encoding="utf-8")
@@ -18,7 +16,6 @@ def _win_compat():
             pass
 
 
-# Move database
 MOVE_DB = {
     "Ember": {"power": 35, "type": "Fire"},
     "Scratch": {"power": 30, "type": "Normal"},
@@ -229,7 +226,7 @@ def show_party(game):
             print(f"{i+1}. {poke.name} (Type: {poke.type}, HP: {poke.hp}/{poke.max_hp}){active_str}")
     print(f"Pokéballs: {game.pokeballs}")
     options = []
-    _ = wait_input(options)  # Only "Back" and "Exit" will show up
+    _ = wait_input(options)  
 
 def heal_party(game):
     for poke in game.party:
@@ -294,12 +291,12 @@ def encounter_menu(game):
     while wild_pokemon.hp > 0:
         options = ["Attack", "Throw Pokéball", "Run Away", "Switch Pokémon"]
         sel = wait_input(options)
-        if sel == 0:  # Attack
+        if sel == 0:  
             player_attack(game, wild_pokemon)
             if wild_pokemon.hp <= 0:
                 print(f"{wild_pokemon.name} fainted! You can't catch it now.")
                 return
-        elif sel == 1:  # Throw Pokéball
+        elif sel == 1:  
             if game.pokeballs <= 0:
                 print("You are out of Pokéballs!")
                 continue
@@ -313,10 +310,10 @@ def encounter_menu(game):
                 return
             else:
                 print("Oh no! The Pokémon escaped.")
-        elif sel == 2:  # Run Away
+        elif sel == 2:  
             print("You ran away safely.")
             return
-        elif sel == 3:  # Switch Pokémon
+        elif sel == 3:  
             switch_pokemon(game)
         elif sel == "back":
             return
@@ -363,6 +360,6 @@ def switch_pokemon(game):
 
 
 if __name__ == "__main__":
-    _win_compat()  # NEW: enables Windows console niceties; no-op on Linux
+    _win_compat() 
     game = GameState()
     main_menu(game)
